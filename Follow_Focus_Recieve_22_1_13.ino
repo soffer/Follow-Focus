@@ -5,7 +5,7 @@
 #include <AccelStepper.h>
 
 //encoder/motor/driver setup
-int easyDriverMicroSteps = 2; 
+int easyDriverMicroSteps = 1; 
 int rotaryEncoderSteps = 75; 
 int motorStepsPerRev = 200; 
 
