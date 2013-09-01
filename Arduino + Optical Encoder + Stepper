@@ -1,0 +1,69 @@
+//////////////////////////////////////////////////////////////////
+//Arduino + Optical Encoder + Stepper 
+/////////////////////////////////////////////////////////////////
+#include <AccelStepper.h>
+
+//encoder/motor/driver setup
+int easyDriverMicroSteps = 4; //2,4,8
+int rotaryEncoderSteps = 75; //setps per rev on your encoder
+int motorStepsPerRev = 200; //steps per rev on the motor
+
+int MinPulseWidth = 50; //too low and the motor will stall, too high and it will slow it down
+
+int easyDriverDirPin = 16;
+int easyDriverStepPin = 15;
+int enablePin = 17;
+
+//Sleep Function - to diable ED when not active
+long previousMillis = 0;
+int sleepTimer = 5000;
+
+int val; 
+int encoder0PinA = 3;
+int encoder0PinB = 4;
+int encoderValue = 0;
+long lastencoderValue = 0;
+
+int encoder0PinALast = LOW;
+int n = LOW;
+AccelStepper stepper(1, easyDriverStepPin, easyDriverDirPin);
+
+void setup() { 
+  pinMode (encoder0PinA,INPUT);
+  pinMode (encoder0PinB,INPUT);
+  pinMode(enablePin, OUTPUT);
+
+  stepper.setMinPulseWidth(MinPulseWidth); //may need to play with this, but I think this is good.
+  stepper.setMaxSpeed(50000);
+  stepper.setAcceleration(1000000000); //try 100, or 1000 and see if it works
+  stepper.setSpeed(50000); //play with this to see if it makes a diff (1 to 1000)
+} 
+
+void loop() { 
+  int stepsPerRotaryStep = (motorStepsPerRev * easyDriverMicroSteps) / rotaryEncoderSteps;
+  stepper.moveTo(encoderValue * stepsPerRotaryStep);
+  stepper.run();
+  if(encoderValue != lastencoderValue)
+  {
+    lastencoderValue = encoderValue;
+    digitalWrite (enablePin, LOW);
+    previousMillis = millis();
+  } 
+  else
+  {
+    //Stepper sleep after 5sec of no data
+    unsigned long currentMillis = millis ();
+    if (currentMillis - previousMillis>sleepTimer)
+      digitalWrite (enablePin, HIGH); 
+  }
+  n = digitalRead(encoder0PinA);
+  if ((encoder0PinALast == LOW) && (n == HIGH)) {
+    if (digitalRead(encoder0PinB) == LOW) {
+      encoderValue--;
+    } 
+    else {
+      encoderValue++;
+    }
+  } 
+  encoder0PinALast = n;
+}  
