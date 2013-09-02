@@ -1,12 +1,11 @@
-
 // Movement of Optical encoder is translated to moving stepper
 // THIS IS A WORKING VERSION 22.1.13
 
+//      Adi Soffer  2013       //
+//    for more info visit      //
+// http://adisoffer.tumblr.com //
 
 #include <OneButton.h>
-
-
-
 
 //these pins can not be changed 2/3 are special pins
 int encoderPin1 = 2;
