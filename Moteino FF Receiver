@@ -2,6 +2,10 @@
 //Moteino FF Receiver///
 ////////////////////////
 
+//      Adi Soffer  2013       //
+//    for more info visit      //
+// http://adisoffer.tumblr.com //
+
 #include <RFM12B.h>
 #include <AccelStepper.h>
 #include <avr/sleep.h>
