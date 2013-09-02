@@ -1,7 +1,13 @@
-
 ///////////////////////
 //Moteino FF Sender  //
 ///////////////////////
+
+
+//      Adi Soffer  2013       //
+//    for more info visit      //
+// http://adisoffer.tumblr.com //
+
+
 #include <RFM12B.h>
 #include <avr/sleep.h>
 #include <OneButton.h>
