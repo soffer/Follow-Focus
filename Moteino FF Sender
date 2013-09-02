@@ -1,0 +1,318 @@
+
+///////////////////////
+//Moteino FF Sender  //
+///////////////////////
+#include <RFM12B.h>
+#include <avr/sleep.h>
+#include <OneButton.h>
+
+// You will need to initialize the radio by telling it what ID it has and what network it's on
+// The NodeID takes values from 1-127, 0 is reserved for sending broadcast messages (send to all nodes)
+// The Network ID takes values from 0-255
+// By default the SPI-SS line used is D10 on Atmega328. You can change it by calling .SetCS(pin) where pin can be {8,9,10}
+#define NODEID        2  //network ID used for this unit
+#define NETWORKID    99  //the network ID we are on
+#define GATEWAYID     1  //the node ID we're sending to
+//#define ACK_TIME     50  // # of ms to wait for an ack
+
+//encryption is OPTIONAL
+//to enable encryption you will need to:
+// - provide a 16-byte encryption KEY (same on all nodes that talk encrypted)
+// - to call .Encrypt(KEY) to start encrypting
+// - to stop encrypting call .Encrypt(NULL)
+uint8_t KEY[] = "ABCDABCDABCDABCD";
+
+//int interPacketDelay = 1000; //wait this many ms between sending packets
+char input = 0;
+int data = 0;
+
+// Need an instance of the Radio Module
+RFM12B radio;
+byte sendSize=0;
+char payload[] = "1234567890:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+bool requestACK=false;
+
+// Setup OneButton 
+OneButton playButton (A1, true);
+OneButton outButton (A2, true);
+OneButton inButton (A3, true);
+OneButton realTimebutton(A4, true);
+
+//LEDs
+#define playLED 5          //PLay LED
+#define outLED 6           //Out LED
+#define inLED 7            //In LED
+#define realTimeLED 8      //Real Time LED
+
+//Values for focus points
+volatile int inPoint = 0;
+volatile int outPoint = 3000;
+
+//Blink without delay 
+boolean ledState = LOW;
+long previousMillis = 0;
+int ledInterval = 75;
+
+//Defining booleans
+boolean rClickedOnce = false;
+boolean rLongPress = false;
+boolean pClickedOnce = false;
+boolean highEndMark = false;
+boolean lowEndMark = false;
+
+//Value to recieve from 2nd Xbee: when "play" or "rewind" has finished"
+int sum;
+int a;
+
+//Modes
+int mode;
+#define Stop 1
+#define LENSCALIB 2
+
+int encoder0PinA = 4;
+int encoder0PinB = 3;
+int encoderValue = 0;
+int encoder0PinALast = LOW;
+int n = LOW;
+
+void setup() { 
+  pinMode (encoder0PinA,INPUT);
+  pinMode (encoder0PinB,INPUT);
+
+  pinMode (realTimeLED, OUTPUT);
+  pinMode (playLED, OUTPUT);
+  pinMode (inLED, OUTPUT);
+  pinMode (outLED, OUTPUT);
+
+  radio.Initialize(NODEID, RF12_433MHZ, NETWORKID);
+  radio.Encrypt(KEY);
+  radio.Sleep(); //sleep right away to save power
+
+  //Attach Click to Buttons
+  realTimebutton.attachClick(Click);
+  playButton.attachClick(ClickPlay);
+  inButton.attachClick(ClickIn);
+  outButton.attachClick(ClickOut);
+
+  //Attach Press to Real Time for calibrating lens and motor
+  realTimebutton.attachPress(rPress);
+
+  //Start Up Light
+  for (int x=0;x<3;x++)
+  {
+    for (int l=5;l<9;l++)
+    {
+      digitalWrite(l,HIGH);
+      delay (100);
+      digitalWrite(l,LOW); 
+      delay (100);
+    }
+  } 
+} 
+
+void loop() {
+
+  n = digitalRead(encoder0PinA);
+  if ((encoder0PinALast == LOW) && (n == HIGH)) {
+    if (digitalRead(encoder0PinB) == LOW) {
+      encoderValue--;
+      Transmit(1);
+    } 
+    else {
+      encoderValue++;
+      Transmit(2);
+    }
+  } 
+  encoder0PinALast = n;
+
+  // keep watching the push buttons:
+  realTimebutton.tick();
+  playButton.tick();
+  inButton.tick();
+  outButton.tick(); 
+
+  // filter signal from stepper motor  
+  //arduino when(play/rewind/In/Out) is done.
+  if (radio.ReceiveComplete())
+  {
+    if (radio.CRCPass())
+    {
+      sum = 0;
+      for (byte i = 0; i < radio.GetDataLen(); i++)
+      {
+        a = (radio.Data[i]); 
+      }
+      sum+=a;
+      dataSort ();
+    } 
+  }
+
+  switch (mode)
+  {
+
+  case LENSCALIB:
+    {
+      blinkFunction (realTimeLED);
+
+      if (lowEndMark == true && highEndMark == true ||rClickedOnce == true || pClickedOnce == true)
+      {
+        rLongPress = false;
+        digitalWrite (realTimeLED, LOW);
+        if (rClickedOnce == true)
+          digitalWrite(realTimeLED, HIGH);
+        if (pClickedOnce == true)
+          digitalWrite (playLED, HIGH);
+        mode = Stop;
+        break;
+      }
+    }
+  }
+}
+
+//4 Buttons Click Functions
+
+//Real Time Switch
+void Click() {
+  digitalWrite(playLED, LOW);
+  rLongPress = false;
+  if (rClickedOnce == false )
+  {
+    rClickedOnce = true;
+    digitalWrite(realTimeLED, HIGH); 
+    Transmit(3);
+  }
+  else
+  {
+    digitalWrite(realTimeLED, LOW);
+    rClickedOnce = false;
+  }
+}
+// Press Function - calibrating lens and stepper
+
+void rPress() {
+  if (rLongPress == false) {
+    rLongPress = true;
+    rClickedOnce = false;
+    highEndMark = false;
+    lowEndMark = false;
+    Transmit(4);
+    mode = LENSCALIB;
+  }
+  else
+  {
+    rLongPress = false;
+    digitalWrite(realTimeLED, LOW);
+    mode = Stop;
+  }
+}
+
+//Play Switch
+void ClickPlay () {
+  //terminate realtime in case it wasn't stopped
+  if (pClickedOnce == false)
+  {
+    pClickedOnce = true;
+    rClickedOnce = false;  
+    digitalWrite(realTimeLED, LOW);
+    digitalWrite(playLED, HIGH);
+    radio.Wakeup();
+    radio.Send(GATEWAYID, payload, sendSize+(5));
+    radio.Sleep();
+  }
+  else
+  {
+    pClickedOnce = false;
+    digitalWrite(playLED, LOW); 
+  }
+}
+
+//In Switch
+void ClickIn () {
+  // Saving In
+  if (rClickedOnce == true)                       
+  {
+    inPoint = encoderValue;
+    Transmit(6);
+  }
+  else if (rLongPress == true)
+  {
+    lowEndMark = true; 
+    Transmit(8);
+  }
+}
+
+//Out Switch
+void ClickOut() {
+  //Saving Out
+  if (rClickedOnce == true) 
+  {
+    Transmit(7);
+    outPoint = encoderValue;
+  }
+  else if (rLongPress == true)
+  {
+    highEndMark = true;
+    Transmit(9);
+  }
+}
+int blinkFunction (int y)   // Blink without delay
+{
+  unsigned long currentMillis = millis ();
+  if (currentMillis - previousMillis>ledInterval)
+  {
+    previousMillis = currentMillis;
+    if (ledState == LOW)
+      ledState = HIGH;
+    else
+      ledState = LOW;
+    digitalWrite (y, ledState);
+  }
+}
+
+int blinkMark (int y)
+{
+  boolean b = HIGH;
+  for (int i=0;i<6;i++)
+  {
+    digitalWrite(y, b);
+    delay(75);
+    b=!b;
+  }
+}
+
+int Transmit (int data)
+{ 
+  //1.Send encoder value to move stepper 
+  if (rClickedOnce == true||rLongPress == true)
+  {
+    radio.Wakeup();
+    radio.Send(GATEWAYID, payload, sendSize+(data));
+    radio.Sleep();
+  }
+
+  else if (pClickedOnce == false)
+  {
+    //2. Send speed value to move stepper
+    radio.Wakeup();
+    radio.Send(GATEWAYID, payload, sendSize+(data+10));
+    radio.Sleep();
+  }
+}
+
+void dataSort ()
+{
+  if (sum == 49)
+    blinkMark(inLED);
+
+  else if (sum == 50)
+    blinkMark (outLED);
+
+  else if (sum == 51)
+  {
+    pClickedOnce = false;
+    rClickedOnce = false;
+    digitalWrite (playLED, LOW);
+  }
+}
+
+
